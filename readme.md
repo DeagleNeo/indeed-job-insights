@@ -12,6 +12,14 @@ A browser extension that reveals hidden job information on Indeed job listings, 
 - **Urgent Hire**: If the employer is urgently hiring
 - **High Volume Hiring**: If they're hiring multiple candidates
 
+## 🆕 Data Quality Detection (New!)
+
+The extension now includes intelligent data quality warnings:
+- **⚠️ Quality Warning**: Alerts you when viewing jobs without detailed hiring data
+- **Smart Detection**: Differentiates between general browsing and filtered searches
+- **Educational Insights**: Explains why some jobs lack data (older posts, sponsored content, always-hiring positions)
+- **Actionable Advice**: Suggests using search filters for better quality job listings
+
 ## 📸 Screenshot
 
 ![Indeed Job Insights Panel](screenshot.png)
@@ -62,7 +70,12 @@ A browser extension that reveals hidden job information on Indeed job listings, 
    - Green values indicate positive signals
    - Blue values are informational
 
-4. **Browse Multiple Jobs**
+4. **Understand Data Quality**
+   - **⚠️ Warning Icon**: Indicates jobs without detailed hiring data
+   - The extension explains why data might be missing
+   - Suggests using search filters for higher quality results
+
+5. **Browse Multiple Jobs**
    - Click different job cards to see insights for each
    - The extension automatically refreshes data for each new job
    - The panel updates with job-specific information
@@ -73,6 +86,9 @@ A browser extension that reveals hidden job information on Indeed job listings, 
 - **Real-time Updates**: Refreshes data when switching between jobs
 - **Clean Interface**: Non-intrusive panel that doesn't interfere with Indeed's layout
 - **Detailed Information**: Shows data not normally visible to job seekers
+- **Data Quality Warnings**: Alerts you to potentially lower-quality job listings
+- **Smart Context Awareness**: Different messages for filtered vs. unfiltered searches
+- **Educational Value**: Helps you understand Indeed's job listing ecosystem
 - **Easy to Close**: Click the × button to hide the panel
 
 ## 🛠️ Troubleshooting
@@ -86,6 +102,11 @@ A browser extension that reveals hidden job information on Indeed job listings, 
 - This job might not have the required data structure
 - Try refreshing the page
 - Some jobs may not have all insight data available
+
+### Data Quality Warning Appears
+- This is normal for jobs browsed without search filters
+- Common for older posts, sponsored content, or always-hiring positions
+- Use Indeed's search filters for better quality job listings
 
 ### Data Seems Incorrect
 - The extension extracts data directly from Indeed's internal systems
@@ -110,8 +131,9 @@ indeed-job-insights/
 1. The extension monitors Indeed job detail pages
 2. Extracts data from Indeed's internal `window._initialData` object
 3. Parses job information and hiring insights
-4. Displays the information in a floating panel
-5. Automatically refreshes data when navigating between jobs
+4. Detects search context (filtered vs. unfiltered browsing)
+5. Displays appropriate information or warnings in a floating panel
+6. Automatically refreshes data when navigating between jobs
 
 ### Permissions Used
 - `activeTab`: Access to the current Indeed tab
@@ -143,6 +165,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 This extension is not affiliated with Indeed. It extracts publicly available data that Indeed already loads in your browser. Use responsibly and in accordance with Indeed's terms of service.
 
 ## 🔄 Version History
+
+### v1.1.0
+- Added intelligent data quality warning system
+- Implemented smart detection for filtered vs. unfiltered searches
+- Added educational warnings about job listing quality
+- Enhanced user guidance for better job search strategies
+- Improved error messaging based on search context
 
 ### v1.0.0
 - Initial release
