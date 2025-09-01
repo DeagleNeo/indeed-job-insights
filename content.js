@@ -7,7 +7,8 @@ function log(...args) {
 
 // Track current job ID to detect changes
 let currentJobId = null;
-let isRefreshing = false;
+let isProcessingJobChange = false;
+let suppressPanelDisplay = false;
 
 // Function to extract job ID from URL
 function extractJobIdFromUrl() {
@@ -16,7 +17,7 @@ function extractJobIdFromUrl() {
   const jk = urlParams.get('jk');
   
   // Also check the pathname for job ID
-  const pathMatch = window.location.pathname.match(/\/viewjob\?.*jk=([^&]+)/);
+  const pathMatch = window.location.pathname.match(/\/viewjob\?.*[jv]k=([^&]+)/);
   const pathJobId = pathMatch ? pathMatch[1] : null;
   
   const jobId = vjk || jk || pathJobId;
@@ -24,57 +25,66 @@ function extractJobIdFromUrl() {
   return jobId;
 }
 
-// Function to check if we need to refresh for new job data
-function shouldRefreshForNewJob() {
-  const newJobId = extractJobIdFromUrl();
-  
-  if (!newJobId) {
-    log('No job ID found in URL');
-    return false;
+// Function to show loading state
+function showLoadingState() {
+  const existingPanel = document.getElementById('indeed-insights-panel');
+  if (existingPanel) {
+    const content = existingPanel.querySelector('.insights-content');
+    if (content) {
+      content.innerHTML = `
+        <div style="text-align: center; padding: 20px; color: #666;">
+          <div style="display: inline-block; width: 20px; height: 20px; border: 2px solid #f3f3f3; border-top: 2px solid #2557a7; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px;"></div>
+          <br>
+          Loading job insights...
+        </div>
+        <style>
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      `;
+    }
   }
-  
-  if (currentJobId && currentJobId !== newJobId && !isRefreshing) {
-    log('Job ID changed from', currentJobId, 'to', newJobId, '- refresh needed');
-    return true;
-  }
-  
-  currentJobId = newJobId;
-  return false;
 }
 
-// Function to refresh page with current URL
-function refreshForNewJobData() {
-  if (isRefreshing) return;
+// Function to perform a fast, targeted refresh
+function fastRefreshForNewJob() {
+  if (isProcessingJobChange) return;
   
-  isRefreshing = true;
-  log('Refreshing page for new job data...');
+  isProcessingJobChange = true;
+  suppressPanelDisplay = true; // Prevent panel from showing during refresh
+  log('Performing fast refresh for new job data...');
   
-  // Store a flag to prevent infinite refresh loops
-  sessionStorage.setItem('indeed-insights-refreshed', Date.now().toString());
+  // Remove existing panel immediately to prevent double display
+  const existingPanel = document.getElementById('indeed-insights-panel');
+  if (existingPanel) {
+    existingPanel.remove();
+  }
   
-  // Refresh the page
-  window.location.reload();
+  // Use replace() instead of reload() to avoid adding to browser history
+  const currentUrl = window.location.href;
+  const separator = currentUrl.includes('?') ? '&' : '?';
+  const refreshUrl = currentUrl + separator + '_r=' + Date.now();
+  
+  window.location.replace(refreshUrl);
 }
 
-// Function to extract JSON more carefully
+// Function to extract JSON from script tags
 function extractJSONFromScript(scriptContent) {
-  // Find the start of window._initialData
   const startPattern = 'window._initialData';
   const startIndex = scriptContent.indexOf(startPattern);
   
   if (startIndex === -1) return null;
   
-  // Find the equals sign
   let equalsIndex = scriptContent.indexOf('=', startIndex);
   if (equalsIndex === -1) return null;
   
-  // Skip whitespace after equals
   let jsonStart = equalsIndex + 1;
   while (jsonStart < scriptContent.length && /\s/.test(scriptContent[jsonStart])) {
     jsonStart++;
   }
   
-  // Now we need to find the matching closing brace
   if (scriptContent[jsonStart] !== '{') return null;
   
   let braceCount = 0;
@@ -113,24 +123,17 @@ function extractJSONFromScript(scriptContent) {
     }
   }
   
-  if (braceCount !== 0) {
-    log('Unmatched braces in JSON');
-    return null;
-  }
+  if (braceCount !== 0) return null;
   
   const jsonString = scriptContent.substring(jsonStart, jsonEnd);
   
   try {
     return JSON.parse(jsonString);
   } catch (e) {
-    log('Failed to parse extracted JSON:', e.message);
-    // Try to clean up common issues
     try {
-      // Remove trailing semicolon if present
       const cleanedJson = jsonString.replace(/;$/, '');
       return JSON.parse(cleanedJson);
     } catch (e2) {
-      log('Failed to parse cleaned JSON:', e2.message);
       return null;
     }
   }
@@ -146,7 +149,7 @@ function extractJobData() {
     return parseJobData(window._initialData);
   }
   
-  // Method 2: Search in script tags with better extraction
+  // Method 2: Search in script tags
   const scripts = document.getElementsByTagName('script');
   log(`Found ${scripts.length} script tags`);
   
@@ -164,33 +167,6 @@ function extractJobData() {
     }
   }
   
-  // Method 3: Try to evaluate in isolated context
-  try {
-    const scripts = Array.from(document.scripts);
-    for (let script of scripts) {
-      if (script.textContent && script.textContent.includes('window._initialData')) {
-        // Create a temporary function to extract the data
-        const extractFunction = new Function(`
-          var window = {};
-          ${script.textContent}
-          return window._initialData;
-        `);
-        
-        try {
-          const data = extractFunction();
-          if (data) {
-            log('Extracted data using Function constructor');
-            return parseJobData(data);
-          }
-        } catch (e) {
-          log('Failed to execute extraction function:', e.message);
-        }
-      }
-    }
-  } catch (e) {
-    log('Failed to use Function constructor method:', e.message);
-  }
-  
   log('No job data found');
   return null;
 }
@@ -199,10 +175,6 @@ function parseJobData(initialData) {
   log('Parsing job data structure...');
   
   try {
-    // Log the structure to understand it better
-    log('Initial data keys:', Object.keys(initialData).slice(0, 10)); // Only log first 10 keys
-    
-    // Try different paths that Indeed might use
     let jobData = null;
     let hireInsights = null;
     
@@ -230,7 +202,6 @@ function parseJobData(initialData) {
       for (let key of responseKeys) {
         const value = initialData[key];
         if (value && typeof value === 'object') {
-          // Look for job data in this object
           const potentialJob = findJobData(value);
           if (potentialJob) {
             jobData = potentialJob.job;
@@ -251,7 +222,6 @@ function parseJobData(initialData) {
     
     const hireDemand = jobData.hiringDemand || {};
     
-    // Extract data with safe defaults
     const extractedData = {
       isRepost: jobData.isRepost || false,
       isLatestPost: jobData.isLatestPost || false,
@@ -273,25 +243,21 @@ function parseJobData(initialData) {
 
 // Helper function to recursively find job data
 function findJobData(obj, depth = 0) {
-  if (depth > 5) return null; // Prevent infinite recursion
+  if (depth > 5) return null;
   
   if (obj && typeof obj === 'object') {
-    // Check if this object has job data
     if (obj.job && (obj.job.datePublished || obj.job.isRepost !== undefined)) {
       return { job: obj.job, insights: null };
     }
     
-    // Check for results array
     if (obj.results && Array.isArray(obj.results) && obj.results[0]?.job) {
       return { job: obj.results[0].job, insights: null };
     }
     
-    // Recursively search
     for (let key in obj) {
       if (obj.hasOwnProperty(key)) {
         const result = findJobData(obj[key], depth + 1);
         if (result) {
-          // Also check for hiring insights at this level
           if (obj.hiringInsightsModel) {
             result.insights = obj.hiringInsightsModel;
           }
@@ -306,6 +272,12 @@ function findJobData(obj, depth = 0) {
 
 // Function to create and display the insights panel
 function displayInsights(data) {
+  // Don't display panel if we're in the middle of processing a job change
+  if (suppressPanelDisplay) {
+    log('Suppressing panel display during refresh process');
+    return;
+  }
+  
   log('Displaying insights panel...');
   
   // Remove existing panel if any
@@ -368,27 +340,26 @@ function displayInsights(data) {
     </div>
   `;
   
-  // Add close button functionality
   panel.querySelector('.close-btn').addEventListener('click', () => {
     panel.remove();
   });
   
-  // Add to page
   document.body.appendChild(panel);
   log('Panel added to page');
+  
+  // Reset processing flags
+  isProcessingJobChange = false;
+  suppressPanelDisplay = false;
 }
 
 // Function to check if we're on a job detail page
 function isJobDetailPage() {
-  const isDetailPage = window.location.pathname.includes('/viewjob') || 
+  return window.location.pathname.includes('/viewjob') || 
          window.location.search.includes('vjk=') ||
          window.location.search.includes('jk=') ||
          document.querySelector('[data-testid="job-details"]') !== null ||
          document.querySelector('.jobsearch-JobComponent') !== null ||
          document.querySelector('[id*="jobDetails"]') !== null;
-  
-  log('Is job detail page:', isDetailPage, 'URL:', window.location.href);
-  return isDetailPage;
 }
 
 // Function to wait for element
@@ -426,17 +397,25 @@ async function runExtraction() {
     return;
   }
   
-  // Check if we should refresh for new job data
-  if (shouldRefreshForNewJob()) {
-    refreshForNewJobData();
+  // Check if this is a new job that needs a refresh
+  const newJobId = extractJobIdFromUrl();
+  if (newJobId && currentJobId && newJobId !== currentJobId && !isProcessingJobChange) {
+    log(`Job ID changed from ${currentJobId} to ${newJobId} - triggering refresh`);
+    currentJobId = newJobId;
+    fastRefreshForNewJob();
     return;
   }
   
-  // Wait a bit for data to load
-  log('Waiting for page to fully load...');
+  // Set current job ID if not set
+  if (!currentJobId && newJobId) {
+    currentJobId = newJobId;
+    log('Set initial job ID:', currentJobId);
+  }
+  
+  // Wait for page to load
   await waitForElement('.jobsearch-JobComponent, [data-testid="job-details"], [id*="jobDetails"]', 3000);
   
-  // Try extraction multiple times with delays
+  // Try extraction with retries
   let attempts = 0;
   const maxAttempts = 3;
   
@@ -447,18 +426,75 @@ async function runExtraction() {
     const data = extractJobData();
     if (data) {
       displayInsights(data);
-      isRefreshing = false; // Reset refresh flag on successful extraction
     } else if (attempts < maxAttempts) {
       setTimeout(tryExtraction, 1500);
     } else {
       log('Could not extract job data after', maxAttempts, 'attempts');
-      // Show error panel
-      showErrorPanel();
-      isRefreshing = false; // Reset refresh flag
+      
+      // Check if we're on a filtered search vs general browsing
+      const hasSearchFilters = window.location.search.includes('q=') || 
+                              window.location.search.includes('l=') ||
+                              window.location.search.includes('sort=') ||
+                              window.location.search.includes('radius=');
+      
+      if (!hasSearchFilters) {
+        log('No search filters detected - showing data quality warning');
+        showDataQualityWarning();
+      } else {
+        log('Search filters present but data extraction failed - showing error panel');
+        showErrorPanel();
+      }
     }
   };
   
   tryExtraction();
+}
+
+// Function to show warning about potentially unreliable job data
+function showDataQualityWarning() {
+  const panel = document.createElement('div');
+  panel.id = 'indeed-insights-panel';
+  panel.innerHTML = `
+    <div class="insights-header">
+      <h3>Job Data Quality Notice</h3>
+      <button class="close-btn">&times;</button>
+    </div>
+    <div class="insights-content">
+      <div style="padding: 16px; text-align: center;">
+        <div style="font-size: 24px; margin-bottom: 10px;">⚠️</div>
+        <p style="color: #d73502; font-weight: 600; margin-bottom: 12px;">
+          This job may not have detailed hiring data
+        </p>
+        <p style="color: #666; font-size: 14px; margin-bottom: 16px;">
+          Jobs without detailed metadata might be:
+        </p>
+        <ul style="color: #666; font-size: 13px; text-align: left; margin: 0; padding-left: 20px;">
+          <li>Older or less actively managed postings</li>
+          <li>Sponsored/promoted content</li>
+          <li>General "always hiring" positions</li>
+        </ul>
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #f0f0f0;">
+          <p style="color: #2557a7; font-size: 13px; margin-bottom: 12px;">
+            <strong>💡 Tip:</strong> Try using search filters for more reliable results
+          </p>
+          <button id="manual-refresh" style="background: #2557a7; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;">
+            Refresh for Data
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  panel.querySelector('.close-btn').addEventListener('click', () => {
+    panel.remove();
+  });
+  
+  panel.querySelector('#manual-refresh').addEventListener('click', () => {
+    fastRefreshForNewJob();
+  });
+  
+  document.body.appendChild(panel);
+  isProcessingJobChange = false;
 }
 
 function showErrorPanel() {
@@ -473,10 +509,8 @@ function showErrorPanel() {
       <p style="color: #666; text-align: center; padding: 20px;">
         Unable to extract job data from this page. 
         <br><br>
-        Try refreshing the page or selecting a different job.
-        <br><br>
         <button id="manual-refresh" style="background: #2557a7; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-          Refresh Page
+          Refresh for Data
         </button>
       </p>
     </div>
@@ -487,26 +521,11 @@ function showErrorPanel() {
   });
   
   panel.querySelector('#manual-refresh').addEventListener('click', () => {
-    window.location.reload();
+    fastRefreshForNewJob();
   });
   
   document.body.appendChild(panel);
-}
-
-// Check if this is a fresh load after refresh
-function checkIfJustRefreshed() {
-  const refreshTime = sessionStorage.getItem('indeed-insights-refreshed');
-  if (refreshTime) {
-    const timeSinceRefresh = Date.now() - parseInt(refreshTime);
-    // If less than 3 seconds ago, consider it a fresh refresh
-    if (timeSinceRefresh < 3000) {
-      log('Page was just refreshed for new job data');
-      sessionStorage.removeItem('indeed-insights-refreshed');
-      isRefreshing = false;
-      return true;
-    }
-  }
-  return false;
+  isProcessingJobChange = false;
 }
 
 // Enhanced URL change detection
@@ -519,59 +538,67 @@ function handleUrlChange() {
     lastUrl = url;
     log('URL changed to:', url);
     
-    // Clear any existing timeout
     if (urlChangeTimeout) {
       clearTimeout(urlChangeTimeout);
     }
     
-    // Set a timeout to run extraction after URL stabilizes
+    // Quick response to URL changes
     urlChangeTimeout = setTimeout(() => {
       if (isJobDetailPage()) {
         runExtraction();
       }
-    }, 500);
+    }, 100); // Very fast response
   }
 }
 
-// Run when page loads
-log('Extension loaded, waiting for DOM...');
+// Check if URL has refresh parameter and clean it
+function cleanRefreshParameter() {
+  const url = new URL(window.location);
+  if (url.searchParams.has('_r')) {
+    url.searchParams.delete('_r');
+    // Use replaceState to clean the URL without triggering another navigation
+    window.history.replaceState({}, '', url.toString());
+    log('Cleaned refresh parameter from URL - this was a refresh for new job data');
+    // Reset suppression flag since we're now on the fresh page
+    suppressPanelDisplay = false;
+    isProcessingJobChange = false;
+  }
+}
+
+// Initialize
+log('Indeed Insights Extension loaded');
+
+// Clean refresh parameter if present
+cleanRefreshParameter();
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    log('DOM loaded');
-    checkIfJustRefreshed();
     currentJobId = extractJobIdFromUrl();
-    setTimeout(runExtraction, 1000);
+    setTimeout(runExtraction, 500);
   });
 } else {
-  log('DOM already loaded');
-  checkIfJustRefreshed();
   currentJobId = extractJobIdFromUrl();
-  setTimeout(runExtraction, 1000);
+  setTimeout(runExtraction, 500);
 }
 
-// Listen for URL changes (for single-page navigation)
+// Listen for URL changes with very fast response
 new MutationObserver(handleUrlChange).observe(document, {
   subtree: true, 
   childList: true
 });
 
-// Also listen for popstate events (back/forward button)
 window.addEventListener('popstate', handleUrlChange);
 
-// Listen for manual refresh command (useful for debugging)
+// Keyboard shortcuts for debugging
 document.addEventListener('keydown', (e) => {
-  // Ctrl+Shift+I to manually trigger extraction
   if (e.ctrlKey && e.shiftKey && e.key === 'I') {
     log('Manual extraction triggered');
     runExtraction();
   }
   
-  // Ctrl+Shift+R to force refresh
   if (e.ctrlKey && e.shiftKey && e.key === 'R') {
     log('Manual refresh triggered');
-    isRefreshing = false; // Reset flag
-    sessionStorage.removeItem('indeed-insights-refreshed');
-    window.location.reload();
+    isProcessingJobChange = false;
+    fastRefreshForNewJob();
   }
 });
