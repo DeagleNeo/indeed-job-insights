@@ -14,7 +14,7 @@ A browser extension that reveals hidden job information on Indeed job listings, 
 
 ## 📸 Screenshot
 
-![Indeed Job Insights Panel](https://via.placeholder.com/400x300?text=Screenshot+Here)
+![Indeed Job Insights Panel](screenshot.png)
 *The insights panel appears on job detail pages*
 
 ## 🚀 Installation
