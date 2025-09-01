@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Indeed Job Insights",
+  "version": "1.0",
+  "description": "Extract and display job insights on Indeed pages",
+  "permissions": ["activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.indeed.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
